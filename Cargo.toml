@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = ["contracts/tip"]
+
+[workspace.dependencies]
+# NOTE: "testutils" is intentionally NOT enabled here. It's added per-target via
+# `[dev-dependencies]` in contracts/tip/Cargo.toml instead: testutils pulls in
+# serde_json/rand, which aren't available for the wasm32v1-none contract target,
+# so baking the feature into the shared workspace dependency would break the
+# actual on-chain release/wasm build.
+soroban-sdk = { version = "=22.0.0" }
+
+# soroban-env-host 22.1.0 (transitively pulled in and hard-pinned by soroban-sdk
+# 22.0.0) declares an unbounded `ed25519-dalek = ">=2.0.0"` dependency with the
+# "rand_core" feature enabled. ed25519-dalek 3.0.0 was published after that release
+# and its "rand_core" feature now re-exports a newer rand_core major version, which
+# conflicts with the `rand_chacha 0.3.1` (rand_core 0.6.x) pinned elsewhere in the
+# same dependency graph, so an unpatched `cargo build`/`test` fails inside
+# soroban-env-host's testutils with a `ChaCha20Rng: CryptoRng` trait-bound error.
+# Pinning the whole graph to the last known-good 2.x release resolves it. The
+# upstream git repository's tags/history no longer contain a fetchable ref for
+# any 2.x release (verified via `git ls-remote`), so we vendor the crates.io 2.2.0
+# source locally and patch to it by path instead.
+[patch.crates-io]
+ed25519-dalek = { path = "vendor/ed25519-dalek-2.2.0" }
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true

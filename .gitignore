@@ -1,0 +1,5 @@
+/target
+**/test_snapshots/
+Cargo.lock.bak
+*.wasm.bak
+.DS_Store

@@ -1,0 +1,76 @@
+name: Deploy Testnet
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Build and deploy to Stellar testnet
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Stellar CLI
+        run: cargo install --locked stellar-cli --features opt
+
+      - name: Configure testnet network
+        run: |
+          stellar network add testnet \
+            --rpc-url https://soroban-testnet.stellar.org \
+            --network-passphrase "Test SDF Network ; September 2015" \
+            || true
+
+      - name: Configure deployer identity
+        env:
+          DEPLOYER_SECRET_KEY: ${{ secrets.TESTNET_DEPLOYER_SECRET_KEY }}
+        run: |
+          stellar keys add deployer --secret-key <<< "$DEPLOYER_SECRET_KEY"
+
+      - name: Build contract
+        run: stellar contract build
+
+      - name: Upload contract wasm
+        id: upload
+        run: |
+          WASM_HASH=$(stellar contract upload \
+            --wasm target/wasm32v1-none/release/tip.wasm \
+            --source deployer \
+            --network testnet)
+          echo "wasm_hash=$WASM_HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy contract
+        id: deploy
+        run: |
+          CONTRACT_ID=$(stellar contract deploy \
+            --wasm-hash ${{ steps.upload.outputs.wasm_hash }} \
+            --source deployer \
+            --network testnet)
+          echo "contract_id=$CONTRACT_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Record deployment
+        run: |
+          cat <<EOF > deployments/testnet.json
+          {
+            "TipContract": "${{ steps.deploy.outputs.contract_id }}",
+            "network": "testnet",
+            "deployedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
+      - name: Commit updated deployment record
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add deployments/testnet.json
+          git diff --cached --quiet || git commit -m "chore: record testnet deployment"
+          git push

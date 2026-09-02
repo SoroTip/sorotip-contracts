@@ -1,0 +1,20 @@
+[package]
+name = "tip"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "SoroTip on-chain tipping and creator monetization contract for Stellar Soroban"
+repository = "https://github.com/SoroTip/sorotip-contracts"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+
+[features]
+testutils = ["soroban-sdk/testutils"]
