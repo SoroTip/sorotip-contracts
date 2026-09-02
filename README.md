@@ -114,8 +114,29 @@ cargo build --target wasm32v1-none -p tip --release
 
 ## Testnet Deployment
 
-The `deploy-testnet.yml` workflow builds and deploys this contract to Stellar
-testnet on every push to `main`, recording the resulting contract ID in
+Deploy manually with the Stellar CLI once you have a funded testnet identity:
+
+```bash
+stellar network add testnet \
+  --rpc-url https://soroban-testnet.stellar.org \
+  --network-passphrase "Test SDF Network ; September 2015"
+
+stellar keys generate deployer --network testnet --fund
+
+stellar contract build
+
+WASM_HASH=$(stellar contract upload \
+  --wasm target/wasm32v1-none/release/tip.wasm \
+  --source deployer \
+  --network testnet)
+
+CONTRACT_ID=$(stellar contract deploy \
+  --wasm-hash "$WASM_HASH" \
+  --source deployer \
+  --network testnet)
+```
+
+Record the resulting contract ID in
 [`deployments/testnet.json`](./deployments/testnet.json):
 
 ```json
