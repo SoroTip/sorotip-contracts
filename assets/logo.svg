@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="SoroTip logo">
+  <defs>
+    <linearGradient id="sorotipArc" x1="8" y1="52" x2="78" y2="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f97316" />
+      <stop offset="1" stop-color="#fbbf24" />
+    </linearGradient>
+  </defs>
+  <rect x="52" y="8" width="42" height="42" rx="12" fill="#1c1917" stroke="#2c2723" stroke-width="1.5" />
+  <path d="M8,58 Q40,14 76,26" fill="none" stroke="url(#sorotipArc)" stroke-width="7" stroke-linecap="round" />
+  <circle cx="8" cy="58" r="4.5" fill="#f97316" opacity="0.5" />
+  <circle cx="76" cy="26" r="6.5" fill="#fbbf24" />
+</svg>
