@@ -11,6 +11,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Stellar Network](https://img.shields.io/badge/Stellar-Network-brightgreen?logo=stellar)](https://stellar.org)
 [![Drips Wave](https://img.shields.io/badge/Drips-Wave%20Program-8A2BE2)](https://drips.network/wave)
+[![Live App](https://img.shields.io/badge/Live-sorotip--app.vercel.app-F97316)](https://sorotip-app.vercel.app)
 
 ## What is SoroTip
 
