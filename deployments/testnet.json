@@ -1,5 +1,7 @@
 {
-  "TipContract": "",
+  "TipContract": "CA7HKO4JFDJKIC4Y7DIPR6NAGLCKOQREVUXSUQZIAJMPSKLNKAYPR4YC",
   "network": "testnet",
-  "deployedAt": ""
+  "deployedAt": "2026-09-05T07:24:04Z",
+  "tokenContract": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+  "tokenAsset": "native (XLM)"
 }
