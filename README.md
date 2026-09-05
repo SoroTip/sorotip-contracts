@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/logo.svg" width="88" alt="SoroTip logo" />
+  <img src="./assets/logo-lockup.png" width="340" alt="SoroTip logo" />
 </p>
 
 # SoroTip Contracts
