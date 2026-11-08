@@ -1,8 +1,8 @@
 #![cfg(test)]
 
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
-    token, Address, Env, String,
+    testutils::{Address as _, Ledger, MockAuth, MockAuthInvoke},
+    token, Address, Env, IntoVal, String,
 };
 
 use crate::{types::SECONDS_PER_MONTH, TipContract, TipContractClient};
@@ -424,6 +424,224 @@ fn test_protocol_stats_accurate() {
     assert_eq!(stats.total_creators, 1);
     assert_eq!(stats.total_subscriptions, 1);
     assert_eq!(stats.fee_collected, 150_0000000i128 * 100 / 10_000);
+}
+
+#[test]
+fn test_tip_and_subscription_charge_never_leave_funds_in_contract() {
+    let ctx = setup(250); // 2.5% fee, so both a tip and a charge route a second transfer.
+    let supporter = Address::generate(&ctx.env);
+    let creator = Address::generate(&ctx.env);
+    ctx.contract.register_creator(
+        &creator,
+        &name(&ctx.env, "Bob"),
+        &name(&ctx.env, "bio"),
+        &name(&ctx.env, ""),
+    );
+
+    ctx.token_admin.mint(&supporter, &10_000_000_000);
+    ctx.contract
+        .tip(&supporter, &creator, &100_0000000, &name(&ctx.env, ""));
+    assert_eq!(ctx.token.balance(&ctx.contract.address), 0);
+
+    ctx.token.approve(
+        &supporter,
+        &ctx.contract.address,
+        &100_0000000,
+        &(SECONDS_PER_MONTH as u32 + 1000),
+    );
+    ctx.contract.subscribe(&supporter, &creator, &10_0000000);
+    ctx.env
+        .ledger()
+        .with_mut(|li| li.timestamp += SECONDS_PER_MONTH);
+    ctx.contract.process_due_subscriptions();
+    assert_eq!(ctx.token.balance(&ctx.contract.address), 0);
+}
+
+/// Proves process_due_subscriptions really implements the keeper pattern: the
+/// supporter authorizes a token allowance once (via `approve`), and the keeper
+/// call that later spends it needs no authorization of its own. This test uses
+/// `mock_auths` to mock only the specific calls that require a signature —
+/// never `mock_all_auths` — so the final `process_due_subscriptions` call runs
+/// with zero mocked (or real) authorizations. If the contract design relied on
+/// a plain `transfer` instead of an allowance + `transfer_from`, this test
+/// would fail with a missing-authorization error instead of moving funds.
+#[test]
+fn test_keeper_can_charge_subscription_using_only_preapproved_allowance() {
+    let env = Env::default();
+
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let token_admin_addr = Address::generate(&env);
+    let supporter = Address::generate(&env);
+    let creator = Address::generate(&env);
+
+    let token_contract_id = env.register_stellar_asset_contract_v2(token_admin_addr.clone());
+    let token = token::Client::new(&env, &token_contract_id.address());
+    let token_admin = token::StellarAssetClient::new(&env, &token_contract_id.address());
+
+    let contract_id = env.register(TipContract, ());
+    let contract = TipContractClient::new(&env, &contract_id);
+
+    contract
+        .mock_auths(&[MockAuth {
+            address: &admin,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "initialize",
+                args: (&admin, 0u32, &treasury, token.address.clone()).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .initialize(&admin, &0, &treasury, &token.address);
+
+    contract
+        .mock_auths(&[MockAuth {
+            address: &creator,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "register_creator",
+                args: (
+                    &creator,
+                    name(&env, "Bob"),
+                    name(&env, "bio"),
+                    name(&env, ""),
+                )
+                    .into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .register_creator(
+            &creator,
+            &name(&env, "Bob"),
+            &name(&env, "bio"),
+            &name(&env, ""),
+        );
+
+    token_admin
+        .mock_auths(&[MockAuth {
+            address: &token_admin_addr,
+            invoke: &MockAuthInvoke {
+                contract: &token_contract_id.address(),
+                fn_name: "mint",
+                args: (&supporter, 10_000_000_000i128).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .mint(&supporter, &10_000_000_000);
+
+    token
+        .mock_auths(&[MockAuth {
+            address: &supporter,
+            invoke: &MockAuthInvoke {
+                contract: &token_contract_id.address(),
+                fn_name: "approve",
+                args: (
+                    &supporter,
+                    &contract_id,
+                    100_0000000i128,
+                    SECONDS_PER_MONTH as u32 + 1000,
+                )
+                    .into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .approve(
+            &supporter,
+            &contract_id,
+            &100_0000000,
+            &(SECONDS_PER_MONTH as u32 + 1000),
+        );
+
+    contract
+        .mock_auths(&[MockAuth {
+            address: &supporter,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "subscribe",
+                args: (&supporter, &creator, 10_0000000i128).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .subscribe(&supporter, &creator, &10_0000000);
+
+    env.ledger()
+        .with_mut(|li| li.timestamp += SECONDS_PER_MONTH);
+
+    // No mock_auths and no mock_all_auths for this call: the keeper identity
+    // calling process_due_subscriptions is unauthenticated, exactly as it
+    // would be on a public network where anyone can invoke it.
+    let charged = contract.process_due_subscriptions();
+
+    assert_eq!(charged, 1);
+    assert_eq!(token.balance(&creator), 10_0000000);
+    assert_eq!(token.balance(&supporter), 10_000_000_000 - 10_0000000);
+    assert_eq!(token.balance(&contract_id), 0);
+}
+
+#[test]
+fn test_process_due_subscriptions_skips_not_yet_due() {
+    let ctx = setup(0);
+    let creator_due = Address::generate(&ctx.env);
+    let creator_not_due = Address::generate(&ctx.env);
+    let supporter_due = Address::generate(&ctx.env);
+    let supporter_not_due = Address::generate(&ctx.env);
+
+    ctx.contract.register_creator(
+        &creator_due,
+        &name(&ctx.env, "Due"),
+        &name(&ctx.env, ""),
+        &name(&ctx.env, ""),
+    );
+    ctx.contract.register_creator(
+        &creator_not_due,
+        &name(&ctx.env, "NotDue"),
+        &name(&ctx.env, ""),
+        &name(&ctx.env, ""),
+    );
+
+    ctx.token_admin.mint(&supporter_due, &10_000_000_000);
+    ctx.token_admin.mint(&supporter_not_due, &10_000_000_000);
+    ctx.token.approve(
+        &supporter_due,
+        &ctx.contract.address,
+        &10_000_000_000,
+        &(SECONDS_PER_MONTH as u32 * 2),
+    );
+    ctx.token.approve(
+        &supporter_not_due,
+        &ctx.contract.address,
+        &10_000_000_000,
+        &(SECONDS_PER_MONTH as u32 * 2),
+    );
+
+    // Subscribed first, so by the time we advance one month it is due.
+    ctx.contract
+        .subscribe(&supporter_due, &creator_due, &20_0000000);
+
+    // Subscribed after the ledger already advanced, so its next_charge_date is
+    // a full month further out than the first subscription's.
+    ctx.env
+        .ledger()
+        .with_mut(|li| li.timestamp += SECONDS_PER_MONTH / 2);
+    ctx.contract
+        .subscribe(&supporter_not_due, &creator_not_due, &30_0000000);
+
+    ctx.env
+        .ledger()
+        .with_mut(|li| li.timestamp += SECONDS_PER_MONTH / 2);
+
+    let charged = ctx.contract.process_due_subscriptions();
+
+    assert_eq!(charged, 1);
+    assert_eq!(ctx.token.balance(&creator_due), 20_0000000);
+    assert_eq!(ctx.token.balance(&creator_not_due), 0);
+
+    let not_due_sub = ctx
+        .contract
+        .get_subscriptions_by_supporter(&supporter_not_due)
+        .get(0)
+        .unwrap();
+    assert!(not_due_sub.next_charge_date > ctx.env.ledger().timestamp());
 }
 
 #[test]
