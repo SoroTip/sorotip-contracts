@@ -1894,6 +1894,7 @@ name = "tip"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellar-strkey 0.0.16",
 ]
 
 [[package]]
